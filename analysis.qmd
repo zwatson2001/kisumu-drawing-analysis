@@ -1,0 +1,67 @@
+---
+title: "Prolific data summary"
+format: html
+editor: visual
+warning: false 
+message: false
+echo: false
+embed-resources: true
+---
+
+```{r load libraries}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(here)
+```
+
+```{r read in data}
+first_round <- list.files((here("first_round_data")), pattern = "\\.csv$", full.names = TRUE)
+second_round <- list.files((here("second_round_data")), pattern = "\\.csv$", full.names = TRUE)
+third_round <- list.files((here("third_round_data")), pattern = "\\.csv$", full.names = TRUE)
+
+data <- read_csv(c(first_round, second_round, third_round), id = "file_name")
+```
+
+```{r clean data}
+data <- data |> select(-file_name, -view_history, -trial_type, -plugin_version, -response)
+```
+
+```{r filter out failed catch trials and prep trials}
+data <- data |> filter(!(catch_trial & (response_category != "Airplane")) & !prep_trial)
+```
+
+```{r add age bins}
+data <- data |> 
+  mutate(age_bin = case_when(
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 21 ~ 1, 
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 41 ~ 2,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 61 ~ 3,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 81 ~ 4,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 101 ~ 5,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 121 ~ 6
+    )
+  )
+```
+
+```{r write data to csv}
+write_csv(data, here('output', 'full_data.csv'))
+```
+
+```{r rating counts for each drawing}
+rating_count_by_drawing <- data |> count(sketch_id, sketcher_category, age_bin) |> drop_na()
+
+write_csv(rating_count_by_drawing, here('output', 'rating_count_per_drawing.csv'))
+```
+
+```{r plot drawings per rating count}
+ggplot(rating_count_by_drawing, aes(x = n)) + 
+  geom_histogram(binwidth = 1) + 
+  scale_x_continuous(breaks = seq(0, 20, 1)) + 
+  labs(
+    title = "Number of Drawings per Rating Count",
+    x = "Rating Count", 
+    y = "Number of Drawings"
+  ) + 
+  theme_classic()
+```
