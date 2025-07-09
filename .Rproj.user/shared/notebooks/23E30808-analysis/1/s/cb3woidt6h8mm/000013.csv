@@ -1,2 +1,0 @@
-"0","data |> dplyr::count(sketch_id) |>"
-"0","  dplyr::filter(n > 9)"

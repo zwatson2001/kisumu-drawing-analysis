@@ -1,4 +1,0 @@
-"0","catch_trials <- data |> "
-"0","  dplyr::filter(catch_trial) |>"
-"0","  dplyr::filter(response_category != ""Airplane"")"
-"0","catch_trials"
