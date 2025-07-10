@@ -27,8 +27,16 @@ data <- read_csv(c(first_round, second_round, third_round), id = "file_name")
 data <- data |> select(-file_name, -view_history, -trial_type, -plugin_version, -response)
 ```
 
-```{r filter out failed catch trials and prep trials}
-data <- data |> filter(!(catch_trial & (response_category != "Airplane")) & !prep_trial)
+``` {r filter out participants who failed catch trials}
+participants_failed_catch_trials <- data |> 
+  filter(catch_trial & response_category != "Airplane") |>
+  select(participant_id)
+
+data <- data |> filter(!(participant_id %in% participants_failed_catch_trials$participant_id))
+```
+
+```{r filter out catch trials and prep trials}
+data <- data |> filter(!catch_trial & !prep_trial)
 ```
 
 ```{r add age bins}
