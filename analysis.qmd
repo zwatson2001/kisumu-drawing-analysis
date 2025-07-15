@@ -39,7 +39,7 @@ data <- data |> filter(!(participant_id %in% participants_failed_catch_trials$pa
 data <- data |> filter(!catch_trial & !prep_trial)
 ```
 
-```{r add age bins}
+```{r add age bins and age}
 data <- data |> 
   mutate(age_bin = case_when(
     strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 21 ~ 1, 
@@ -50,6 +50,14 @@ data <- data |>
     strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 121 ~ 6
     )
   )
+
+data <- data |>
+  mutate(age = age_bin + 3)
+```
+
+```{r add correct variable}
+data <- data |>
+  mutate(correct = sketcher_category == response_category)
 ```
 
 ```{r write data to csv}
@@ -72,4 +80,21 @@ ggplot(rating_count_by_drawing, aes(x = n)) +
     y = "Number of Drawings"
   ) + 
   theme_classic()
+```
+
+```{r line go up}
+recognizability_by_age <- data |> 
+  mutate(correct = as.integer(correct)) |>
+  group_by(age) |>
+  summarize(mean_correct = mean(correct))
+
+ggplot(recognizability_by_age, aes(x=age, y=mean_correct)) +
+  geom_line() +
+  labs(
+    title = "Recognizability of Drawings by Sketcher Age", 
+    x = "Age", 
+    y = "Mean Correct Ratings"
+  ) + 
+  theme_classic()
+  
 ```
