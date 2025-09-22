@@ -1,5 +1,5 @@
 ---
-title: "Prolific data summary"
+title: "Kisumu Drawing Data Analysis"
 format: html
 editor: visual
 warning: false 
@@ -13,64 +13,229 @@ library(tidyverse)
 library(ggplot2)
 library(knitr)
 library(here)
+library(lme4)
+library(scales)
+library(jtools)
 ```
 
-```{r read in data}
+```{r read in drawing data}
 first_round <- list.files((here("first_round_data")), pattern = "\\.csv$", full.names = TRUE)
 second_round <- list.files((here("second_round_data")), pattern = "\\.csv$", full.names = TRUE)
 third_round <- list.files((here("third_round_data")), pattern = "\\.csv$", full.names = TRUE)
+fourth_round <- list.files(here("fourth_round_data"), pattern = "\\.csv$", full.names = TRUE)
+fifth_round <- list.files(here("fifth_round_data"), pattern = "\\.csv$", full.names = TRUE)
 
-data <- read_csv(c(first_round, second_round, third_round), id = "file_name")
+data <- read_csv(c(first_round, second_round, third_round, fourth_round, fifth_round), id = "file_name")
+```
+
+``` {r read in demographic data}
+demographic_data <- read_csv(here("demo_data/drawing_recognition_demo_data.csv")); 
+```
+
+``` {r read in tracing demographic data}
+tracing_demographic_data_files <- list.files((here("demo_data/tracing")), pattern = "\\.csv$", full.names = TRUE)
+tracing_demographic_data <- read_csv(tracing_demographic_data_files)
+```
+
+``` {r read in tracing data}
+# Note: some of the files (65e74f3dd1cf1c6869f7af37.csv, 58d4c4c287b2420001263b6a.csv, 612039d9400fae9545b3c5a8.csv) had columns in a different order - they were manually reordered to match the other columns
+first_round_tracing_files <- list.files((here("tracing_data/first_round_data")), pattern = "\\.csv$", full.names = TRUE)
+second_round_tracing_files <- list.files((here("tracing_data/second_round_data")), pattern = "\\.csv$", full.names = TRUE)
+third_round_tracing_files <- list.files((here("tracing_data/third_round_data")), pattern = "\\.csv$", full.names = TRUE)
+
+tracing_data_round1 <- read_csv(first_round_tracing_files, id = "file_name")
+tracing_data_round2 <- read_csv(second_round_tracing_files, id = "file_name")
+tracing_data_round3 <- read_csv(third_round_tracing_files, id = "file_name")
+
+# round 1 catch trial responses were saved under response_category rather than response
+tracing_data_round1 <- tracing_data_round1 |> 
+  mutate(response = case_when(
+    catch_trial ~ response_category, 
+    .default = response
+  ))
+
+# round 1 catch trials did not save tracing type - always 2 (triangle)
+tracing_data_round1 <- tracing_data_round1 |> 
+  mutate(tracing_type = case_when(
+    catch_trial ~ 2, 
+    .default = tracing_type
+  ))
+
+# remove extra columns from round 1
+tracing_data_round1 <- tracing_data_round1 |>
+  select(-response_category, -sketcher_category)
+
+tracing_data <- rbind(tracing_data_round1, tracing_data_round2, tracing_data_round3)
+```
+
+``` {r clean tracing data} 
+tracing_data <- tracing_data |>
+  select(
+    -file_name, 
+    -view_history, 
+    -trial_type, 
+    -plugin_version, 
+    -rt, 
+    -time_elapsed,
+    -study_id, 
+    -session_id, 
+    -stimulus, 
+    -trial_index, 
+    -prep_trial,
+  ) |> 
+  rename(
+    prolific_pid = participant_id
+  )
+```
+
+``` {r add age to tracing data}
+tracing_data <- tracing_data |>
+  mutate(age = 
+    substr(sapply(strsplit(tracing_id, "_"), '[', 2), 4, 4)
+  ) |> 
+  mutate(age = as.numeric(age))
 ```
 
 ```{r clean data}
-data <- data |> select(-file_name, -view_history, -trial_type, -plugin_version, -response)
+data <- data |> 
+  select(
+    -file_name, 
+    -view_history, 
+    -trial_type, 
+    -plugin_version, 
+    -response, 
+    -rt, 
+    -time_elapsed,
+    -study_id, 
+    -session_id, 
+    -stimulus, 
+    -trial_index
+    ) |> 
+  rename(
+    drawing_category = sketcher_category, 
+    response = response_category,
+    prolific_pid = participant_id
+  )
 ```
 
 ``` {r filter out participants who failed catch trials}
 participants_failed_catch_trials <- data |> 
-  filter(catch_trial & response_category != "Airplane") |>
-  select(participant_id)
+  filter(catch_trial & response != "Airplane") |>
+  select(prolific_pid)
 
-data <- data |> filter(!(participant_id %in% participants_failed_catch_trials$participant_id))
+data <- data |> filter(!(prolific_pid %in% participants_failed_catch_trials$prolific_pid))
+```
+
+``` {r filter demographic data}
+participant_ids <- data |>
+  select(prolific_pid) |>
+  unique()
+
+demographic_data_filtered <- demographic_data |>
+  filter(`Participant id` %in% participant_ids$prolific_pid)
+
+demographic_data_excluded <- demographic_data |>
+  filter(!(`Participant id` %in% participant_ids$prolific_pid))
+
+write_csv(demographic_data_filtered, here("output/drawing-recognition-demo-data-filtered.csv"))
+write_csv(demographic_data_excluded, here("output/drawing-recognition-excluded-participants.csv"))
+```
+
+``` {r filter out tracing participants who failed catch trials}
+tracing_participants_failed_catch_trials <- tracing_data |>
+  filter(catch_trial & response > 2) |>
+  select(prolific_pid, catch_trial, response)
+
+write_csv(tracing_participants_failed_catch_trials, "output/tracing_participants_failed_catch_trials.csv")
+
+tracing_data <- tracing_data |> filter(!(prolific_pid %in% tracing_participants_failed_catch_trials$prolific_pid))
+```
+
+``` {r filter tracing demographic data}
+participant_ids_tracing <- tracing_data |>
+  select(prolific_pid) |>
+  unique()
+
+tracing_demographic_data_filtered <- tracing_demographic_data |>
+  filter(`Participant id` %in% participant_ids_tracing$prolific_pid)
+
+tracing_demographic_data_excluded <- tracing_demographic_data |>
+  filter(!(`Participant id` %in% participant_ids_tracing$prolific_pid))
+
+write_csv(tracing_demographic_data_filtered, here("output/tracing-demo-data-filtered.csv"))
+write_csv(tracing_demographic_data_excluded, here("output/tracing-excluded-participants.csv"))
 ```
 
 ```{r filter out catch trials and prep trials}
-data <- data |> filter(!catch_trial & !prep_trial)
+data <- data |> 
+  filter(!catch_trial & !prep_trial) |>
+  select(-prep_trial, -catch_trial)
+```
+
+```{r filter out tracing catch trials and instructions}
+tracing_data <- tracing_data |> 
+  filter(!catch_trial) |>
+  select(-catch_trial)
 ```
 
 ```{r add age bins and age}
 data <- data |> 
-  mutate(age_bin = case_when(
-    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 21 ~ 1, 
-    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 41 ~ 2,
-    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 61 ~ 3,
-    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 81 ~ 4,
-    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 101 ~ 5,
-    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 121 ~ 6
+  mutate(age = case_when(
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 21 ~ 4, 
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 41 ~ 5,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 61 ~ 6,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 81 ~ 7,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 101 ~ 8,
+    strtoi(sapply(str_split(sketch_id, "-"), `[`, 1)) < 121 ~ 9
     )
   )
-
-data <- data |>
-  mutate(age = age_bin + 3)
 ```
 
 ```{r add correct variable}
 data <- data |>
-  mutate(correct = sketcher_category == response_category)
+  mutate(correct = drawing_category == response)
+```
+
+```{r add child id}
+data <- data |> 
+  mutate(child_id = str_split(sketch_id, "-", simplify = TRUE)[,1])
+
+tracing_data <- tracing_data |> 
+  mutate(child_id = str_sub(str_split(tracing_id, "_", simplify = TRUE)[,1], 2))
 ```
 
 ```{r write data to csv}
 write_csv(data, here('output', 'full_data.csv'))
+write_csv(tracing_data, here('output', 'full_tracing_data.csv'))
 ```
 
 ```{r rating counts for each drawing}
-rating_count_by_drawing <- data |> count(sketch_id, sketcher_category, age_bin) |> drop_na()
+rating_count_by_drawing <- data |> count(sketch_id, drawing_category, age) |> drop_na()
 
 write_csv(rating_count_by_drawing, here('output', 'rating_count_per_drawing.csv'))
 ```
 
+```{r rating counts for each tracing}
+#| eval: false
+rating_counts_by_tracing <- tracing_data |> 
+  count(tracing_id, tracing_type, age)
+
+write_csv(rating_counts_by_tracing, here('output', 'rating_count_per_tracing.csv'))
+
+
+ggplot(rating_counts_by_tracing, aes(x = n)) + 
+  geom_histogram(binwidth = 1) + 
+  scale_x_continuous(breaks = seq(0, 20, 1)) + 
+  labs(
+    title = "Number of Tracings per Rating Count",
+    x = "Rating Count", 
+    y = "Number of Tracings"
+  ) + 
+  theme_classic()
+```
+
 ```{r plot drawings per rating count}
+#| eval: false
 ggplot(rating_count_by_drawing, aes(x = n)) + 
   geom_histogram(binwidth = 1) + 
   scale_x_continuous(breaks = seq(0, 20, 1)) + 
@@ -82,19 +247,275 @@ ggplot(rating_count_by_drawing, aes(x = n)) +
   theme_classic()
 ```
 
-```{r line go up}
-recognizability_by_age <- data |> 
+### Visualizations
+
+```{r drawing visualizations}
+recognizability_by_age_and_category <- data |> 
   mutate(correct = as.integer(correct)) |>
-  group_by(age) |>
+  group_by(age, drawing_category, child_id) |>
   summarize(mean_correct = mean(correct))
 
-ggplot(recognizability_by_age, aes(x=age, y=mean_correct)) +
-  geom_line() +
+recognizability_by_age <- data |> 
+  mutate(correct = as.integer(correct)) |>
+  group_by(age, child_id) |>
+  summarize(mean_correct = mean(correct))
+
+overall_means <- recognizability_by_age |> 
+  group_by(age) |>
+  summarize(overall_mean = mean(mean_correct), .groups = "drop")
+
+per_category_means <- recognizability_by_age_and_category |> 
+  group_by(age, drawing_category) |>
+  summarize(overall_mean = mean(mean_correct), .groups = "drop")
+
+summary_by_age <- recognizability_by_age |> 
+  group_by(age) |>
+  summarize(
+    overall_mean = mean(mean_correct),
+    n = n(),
+    se = sd(mean_correct) / sqrt(n),
+    lower_ci = overall_mean - 1.96 * se,
+    upper_ci = overall_mean + 1.96 * se,
+    .groups = "drop"
+  )
+
+ggplot(recognizability_by_age, aes(x = age, y = mean_correct)) +
+  geom_jitter(alpha = 0.5, color = "deepskyblue4", width = 0.2) + 
+  geom_line(data = overall_means, aes(x = age, y = overall_mean), color = "deepskyblue4", size = 1.2, inherit.aes = FALSE) +
+  geom_ribbon(
+    data = summary_by_age, 
+    aes(x = age, ymin = lower_ci, ymax = upper_ci), 
+    fill = "deepskyblue4", alpha = 0.2, inherit.aes = FALSE
+    ) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
   labs(
     title = "Recognizability of Drawings by Sketcher Age", 
     x = "Age", 
-    y = "Mean Correct Ratings"
+    y = "Recognizability"
+  ) +
+  theme_minimal()
+
+ggplot(recognizability_by_age_and_category, aes(x = age, y = mean_correct)) +
+  geom_jitter(alpha = 0.2, color = "deepskyblue4", width = 0.2) + 
+  geom_line(
+    data = per_category_means, 
+    aes(x = age, y = overall_mean), 
+    color = "deepskyblue4", size = 1.2, inherit.aes = FALSE
+    ) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Recognizability of Drawings by Sketcher Age per Category", 
+    x = "Age", 
+    y = "Recognizability"
   ) + 
-  theme_classic()
-  
+  facet_wrap(~drawing_category, ncol=6) +
+  theme_minimal()
 ```
+
+```{r tracing visualizations}
+tracing_ability_by_age_and_tracing_type <- tracing_data |> 
+  group_by(age, tracing_type, child_id) |>
+  summarize(mean_rating = mean(response))
+
+tracing_ability_by_age <- tracing_data |> 
+  group_by(age, child_id) |>
+  summarize(mean_rating = mean(response))
+
+tracing_overall_means <- tracing_ability_by_age |> 
+  group_by(age) |>
+  summarize(overall_mean = mean(mean_rating), .groups = "drop")
+
+per_tracing_type_means <- tracing_ability_by_age_and_tracing_type |> 
+  group_by(age, tracing_type) |>
+  summarize(overall_mean = mean(mean_rating), .groups = "drop")
+
+tracing_summary_by_age <- tracing_ability_by_age |> 
+  group_by(age) |>
+  summarize(
+    overall_mean = mean(mean_rating),
+    n = n(),
+    se = sd(mean_rating) / sqrt(n),
+    lower_ci = overall_mean - 1.96 * se,
+    upper_ci = overall_mean + 1.96 * se,
+    .groups = "drop"
+  )
+
+
+ggplot(tracing_ability_by_age, aes(x = age, y = mean_rating)) +
+  geom_jitter(alpha = 0.5, color = "deepskyblue4", width = 0.2) + 
+  geom_line(
+    data = tracing_overall_means, 
+    aes(x = age, y = overall_mean),
+    color = "deepskyblue4", size = 1.2, inherit.aes = FALSE
+    ) +
+  geom_ribbon(
+    data = tracing_summary_by_age, 
+    aes(x = age, ymin = lower_ci, ymax = upper_ci), 
+    fill = "deepskyblue4", alpha = 0.2, inherit.aes = FALSE
+    ) +
+  labs(
+    title = "Mean Tracing Rating by Age", 
+    x = "Age", 
+    y = "Average rating"
+  ) +
+  theme_minimal()
+
+ggplot(tracing_ability_by_age_and_tracing_type, aes(x = age, y = mean_rating)) +
+  geom_jitter(alpha = 0.2, color = "deepskyblue4", width = 0.2) + 
+  geom_line(
+    data = per_tracing_type_means, 
+    aes(x = age, y = overall_mean, group = tracing_type),
+    color = "deepskyblue4", size = 1.2, inherit.aes = FALSE
+    ) +
+  labs(
+    title = "Mean Rating by Age for each Tracing Type", 
+    x = "Age", 
+    y = "Mean Tracing Rating"
+  ) + 
+  facet_wrap(~tracing_type, ncol=5) +
+  theme_minimal()
+```
+
+
+
+```{r read in picture experience}
+picture_experience_data <- read_csv(here("demo_data/kisumu_picture_experience.csv"))
+picture_experience_data <- picture_experience_data |> 
+  rename(
+    child_id = `Anonymized ID` 
+  )
+```
+
+```{r join with experience data}
+merged_picture_experience_data <- merge(data, picture_experience_data, by = "child_id")
+```
+
+```{r merge tracing data}
+merged_tracing_data <- merge(data, tracing_data, by = "child_id") |>
+  select(-age.y) |> 
+  rename(
+    prolific_drawing_pid = prolific_pid.x, 
+    prolifc_tracing_pid = prolific_pid.y, 
+    drawing_study_response = response.x, 
+    tracing_study_response= response.y, 
+    age = age.x
+    )
+```
+
+```{r visualize tracing and drawing ability}
+drawing_ability_by_tracing_ability <- merged_tracing_data |> 
+  group_by(tracing_study_response, child_id) |>
+  summarize(mean_correct = mean(correct))
+
+drawing_overall_means_by_tracing_ability <- drawing_ability_by_tracing_ability |> 
+  group_by(tracing_study_response) |>
+  summarize(overall_mean = mean(mean_correct), .groups = "drop")
+
+drawing_summary_by_tracing_ability <- drawing_ability_by_tracing_ability |> 
+  group_by(tracing_study_response) |>
+  summarize(
+    overall_mean = mean(mean_correct),
+    n = n(),
+    se = sd(mean_correct) / sqrt(n),
+    lower_ci = overall_mean - 1.96 * se,
+    upper_ci = overall_mean + 1.96 * se,
+    .groups = "drop"
+  )
+
+ggplot(
+  drawing_ability_by_tracing_ability, 
+  aes(x = tracing_study_response, y = mean_correct)
+  ) +
+  geom_jitter(alpha = 0.5, color = "deepskyblue4", width = 0.2) + 
+  geom_line(
+    data = drawing_overall_means_by_tracing_ability, 
+    aes(x = tracing_study_response, y = overall_mean),
+    color = "deepskyblue4", size = 1.2, inherit.aes = FALSE
+    ) +
+  geom_ribbon(
+    data = drawing_summary_by_tracing_ability, 
+    aes(x = tracing_study_response, ymin = lower_ci, ymax = upper_ci), 
+    fill = "deepskyblue4", alpha = 0.2, inherit.aes = FALSE
+    ) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Drawing Recognizability by Tracing Ability", 
+    x = "Mean Tracing Rating", 
+    y = "Drawing Recognizability"
+  ) +
+  theme_minimal()
+```
+
+### Regression results
+
+```{r preregistered regression}
+#| echo: true
+correct_by_age_model <- 
+  glmer(
+    correct ~ age + (1 | child_id) + (age | drawing_category), 
+    data = data, 
+    family = "binomial"
+  )
+
+summ(correct_by_age_model)
+# how to define SES? Use maternal education as proxy?
+```
+
+```{r scale variables for model}
+# initially the picture experience model failed to converge, so I scaled age and drawing frequency
+merged_picture_experience_data$age_c <- scale(merged_picture_experience_data$age, center = TRUE, scale = TRUE)
+merged_picture_experience_data$draw_c <- scale(merged_picture_experience_data$`Draw Freq`, center = TRUE, scale = TRUE)
+```
+
+
+```{r exploratory regressions}
+#| echo: true
+picture_experience_model <- 
+  glmer(
+    correct ~ draw_c * age_c + 
+      `Maternal Education` + 
+      `Talk Freq` + 
+      `Play Freq` + 
+      `Toy Number` + 
+      (age_c | drawing_category) + 
+      (1 | child_id), 
+    data = merged_picture_experience_data, 
+    family = "binomial"
+  )
+
+summ(picture_experience_model)
+```
+
+```{r scale tracing data variables}
+merged_tracing_data$age_c <- scale(merged_tracing_data$age, center = TRUE, scale = TRUE)
+```
+
+```{r tracing regressions}
+#| echo: true
+
+tracing_ability_by_age_model <- 
+  lmer(
+    tracing_study_response ~ age_c + (1 | child_id) + (age_c | tracing_type), 
+    data = merged_tracing_data
+  )
+summ(tracing_ability_by_age_model)
+
+drawing_by_tracing_ability_model <- 
+  glmer(
+    correct ~ tracing_study_response * age_c + (1 | child_id) + (age_c | drawing_category), 
+    data = merged_tracing_data, 
+    family = "binomial"
+  )
+
+summ(drawing_by_tracing_ability_model)
+```
+
+
+
+
+
+
+
+
+
+
