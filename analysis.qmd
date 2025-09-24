@@ -28,15 +28,6 @@ fifth_round <- list.files(here("fifth_round_data"), pattern = "\\.csv$", full.na
 data <- read_csv(c(first_round, second_round, third_round, fourth_round, fifth_round), id = "file_name")
 ```
 
-``` {r read in demographic data}
-demographic_data <- read_csv(here("demo_data/drawing_recognition_demo_data.csv")); 
-```
-
-``` {r read in tracing demographic data}
-tracing_demographic_data_files <- list.files((here("demo_data/tracing")), pattern = "\\.csv$", full.names = TRUE)
-tracing_demographic_data <- read_csv(tracing_demographic_data_files)
-```
-
 ``` {r read in tracing data}
 # Note: some of the files (65e74f3dd1cf1c6869f7af37.csv, 58d4c4c287b2420001263b6a.csv, 612039d9400fae9545b3c5a8.csv) had columns in a different order - they were manually reordered to match the other columns
 first_round_tracing_files <- list.files((here("tracing_data/first_round_data")), pattern = "\\.csv$", full.names = TRUE)
@@ -126,21 +117,6 @@ participants_failed_catch_trials <- data |>
 data <- data |> filter(!(prolific_pid %in% participants_failed_catch_trials$prolific_pid))
 ```
 
-``` {r filter demographic data}
-participant_ids <- data |>
-  select(prolific_pid) |>
-  unique()
-
-demographic_data_filtered <- demographic_data |>
-  filter(`Participant id` %in% participant_ids$prolific_pid)
-
-demographic_data_excluded <- demographic_data |>
-  filter(!(`Participant id` %in% participant_ids$prolific_pid))
-
-write_csv(demographic_data_filtered, here("output/drawing-recognition-demo-data-filtered.csv"))
-write_csv(demographic_data_excluded, here("output/drawing-recognition-excluded-participants.csv"))
-```
-
 ``` {r filter out tracing participants who failed catch trials}
 tracing_participants_failed_catch_trials <- tracing_data |>
   filter(catch_trial & response > 2) |>
@@ -149,21 +125,6 @@ tracing_participants_failed_catch_trials <- tracing_data |>
 write_csv(tracing_participants_failed_catch_trials, "output/tracing_participants_failed_catch_trials.csv")
 
 tracing_data <- tracing_data |> filter(!(prolific_pid %in% tracing_participants_failed_catch_trials$prolific_pid))
-```
-
-``` {r filter tracing demographic data}
-participant_ids_tracing <- tracing_data |>
-  select(prolific_pid) |>
-  unique()
-
-tracing_demographic_data_filtered <- tracing_demographic_data |>
-  filter(`Participant id` %in% participant_ids_tracing$prolific_pid)
-
-tracing_demographic_data_excluded <- tracing_demographic_data |>
-  filter(!(`Participant id` %in% participant_ids_tracing$prolific_pid))
-
-write_csv(tracing_demographic_data_filtered, here("output/tracing-demo-data-filtered.csv"))
-write_csv(tracing_demographic_data_excluded, here("output/tracing-excluded-participants.csv"))
 ```
 
 ```{r filter out catch trials and prep trials}
